@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>數獨遊戲</title>
+    <!-- 載入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 設定字體為 Inter */
+        html { font-family: 'Inter', sans-serif; }
+        /* 數獨格子樣式 */
+        .sudoku-grid {
+            grid-template-columns: repeat(9, 1fr);
+            grid-template-rows: repeat(9, 1fr);
+            width: min(90vw, 500px); /* 響應式寬度 */
+            height: min(90vw, 500px); /* 使網格保持正方形 */
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            border: 4px solid #1f2937; /* 深灰色邊框 */
+        }
+        .cell {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: min(4vw, 24px);
+            font-weight: 500;
+            border: 1px solid #d1d5db; /* 淺灰色分隔線 */
+            transition: all 0.1s ease-out;
+            user-select: none;
+        }
+
+        /* 粗線分隔 3x3 區塊 */
+        .cell:nth-child(3n) { border-right-width: 2px; }
+        .cell:nth-child(9n) { border-right-width: 4px; }
+        .row:nth-child(3n) .cell { border-bottom-width: 2px; }
+        .row:nth-child(9n) .cell { border-bottom-width: 4px; }
+        .row:nth-child(1) .cell { border-top-width: 4px; }
+        .cell:nth-child(1) { border-left-width: 4px; }
+        /* 修正 3x3 邊界 */
+        .row:nth-child(3n) .cell { border-bottom-color: #1f2937; }
+        .row:nth-child(6n) .cell { border-bottom-color: #1f2937; }
+        .cell:nth-child(3n) { border-right-color: #1f2937; }
+        .cell:nth-child(6n) { border-right-color: #1f2937; }
+        
+        /* 選中單元格 */
+        .selected {
+            background-color: #bfdbfe; /* 淺藍色 */
+        }
+        /* 初始數字 (固定) */
+        .fixed-cell {
+            font-weight: 700;
+            color: #1f2937; /* 深灰色 */
+            background-color: #e5e7eb; /* 淺背景 */
+            cursor: default;
+        }
+        /* 用戶輸入的數字 */
+        .user-input {
+            color: #1d4ed8; /* 藍色文字 */
+        }
+        /* 錯誤數字 */
+        .error {
+            background-color: #fca5a5; /* 淺紅色背景 */
+            color: #b91c1c; /* 深紅色文字 */
+        }
+
+        /* 難度按鈕樣式 */
+        .difficulty-btn {
+            @apply px-4 py-2 rounded-lg font-semibold shadow-md transition duration-150;
+        }
+        .difficulty-btn-active {
+            @apply bg-indigo-600 text-white shadow-xl ring-4 ring-indigo-300;
+        }
+        .difficulty-btn-inactive {
+            @apply bg-gray-200 text-gray-700 hover:bg-gray-300;
+        }
+
+        /* 可點擊的空白單元格 */
+        .cell:not(.fixed-cell).clickable {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-gray-50 flex flex-col items-center justify-center min-h-screen p-4">
+    <div class="max-w-xl w-full">
+        <h1 class="text-4xl font-extrabold text-gray-800 text-center mb-6">經典數獨</h1>
+
+        <!-- 計時器顯示 -->
+        <div class="text-2xl font-semibold text-gray-700 text-center mb-4">
+            計時: <span id="timer-display" class="font-bold text-indigo-600">00:00</span>
+        </div>
+        
+        <!-- 難度選擇 -->
+        <div class="flex justify-center space-x-4 mb-6 p-3 bg-white rounded-xl shadow-lg">
+            <button id="easy-btn" data-difficulty="easy" class="difficulty-btn difficulty-btn-inactive">
+                易 (Easy)
+            </button>
+            <button id="medium-btn" data-difficulty="medium" class="difficulty-btn difficulty-btn-active">
+                中 (Medium)
+            </button>
+            <button id="hard-btn" data-difficulty="hard" class="difficulty-btn difficulty-btn-inactive">
+                難 (Hard)
+            </button>
+        </div>
+
+
+        <!-- 遊戲板容器 -->
+        <div id="sudoku-grid" class="sudoku-grid grid bg-white rounded-xl mx-auto">
+            <!-- 數獨單元格將由 JavaScript 渲染 -->
+        </div>
+
+        <!-- 訊息區域 -->
+        <div id="message-box" class="mt-4 text-center h-8">
+            <p id="message-text" class="text-lg font-medium text-gray-700"></p>
+        </div>
+
+        <!-- 數字輸入按鈕 -->
+        <div id="number-pad" class="flex justify-center space-x-2 mt-6 p-4 bg-white rounded-xl shadow-lg">
+            <!-- 數字按鈕 1-9 -->
+        </div>
+
+        <!-- 控制按鈕 -->
+        <div class="flex flex-wrap justify-center gap-3 mt-6">
+            <!-- 新增 開始遊戲 按鈕 -->
+            <button id="start-game-btn" class="px-8 py-3 bg-red-600 text-white font-bold rounded-lg shadow-xl hover:bg-red-700 transition duration-150 text-lg">
+                開始遊戲
+            </button>
+
+            <!-- 其他功能按鈕 (預設禁用，直到遊戲開始) -->
+            <button id="check-btn" class="px-4 py-3 bg-green-600 text-white font-bold rounded-lg shadow-md hover:bg-green-700 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+                檢查答案
+            </button>
+            <button id="clear-btn" class="px-4 py-3 bg-yellow-500 text-white font-bold rounded-lg shadow-md hover:bg-yellow-600 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+                清除數字
+            </button>
+            <button id="hint-btn" class="px-4 py-3 bg-purple-600 text-white font-bold rounded-lg shadow-md hover:bg-purple-700 transition duration-150 disabled:opacity-50 disabled:cursor-not-allowed">
+                提示答案
+            </button>
+            <button id="reset-game-btn" class="px-4 py-3 bg-indigo-600 text-white font-bold rounded-lg shadow-md hover:bg-indigo-700 transition duration-150">
+                重置遊戲
+            </button>
+        </div>
+
+        <!-- 排行榜顯示區域 -->
+        <div class="mt-8 p-4 bg-white rounded-xl shadow-lg">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4 text-center">排行榜 (<span id="leaderboard-difficulty-text">中等</span>)</h2>
+            <div id="leaderboard-list" class="space-y-2">
+                <!-- 排行榜項目將由 JavaScript 渲染 -->
+                <p id="leaderboard-loading" class="text-center text-gray-500">載入中...</p>
+            </div>
+        </div>
+        
+    </div>
+    
+    <!-- Firebase 模組載入與主腳本 -->
+    <script type="module">
+        // 導入 Firebase SDK
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged, setPersistence, browserSessionPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, addDoc, collection, query, where, getDocs, setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // 全域 Firebase 變數
+        let app;
+        let db;
+        let auth;
+        let userId = 'loading'; // 用於儲存當前使用者 ID
+        let isAuthReady = false; // 確保 Firestore 操作在身份驗證後執行
+        
+        // 取得環境變數
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        /**
+         * 格式化時間（秒）為 MM:SS
+         */
+        const formatTime = (totalSeconds) => {
+            const minutes = Math.floor(totalSeconds / 60);
+            const seconds = totalSeconds % 60;
+            const pad = (num) => String(num).padStart(2, '0');
+            return `${pad(minutes)}:${pad(seconds)}`;
+        };
+
+        /**
+         * 渲染排行榜列表
+         */
+        const renderLeaderboard = (scores) => {
+            const leaderboardList = document.getElementById('leaderboard-list');
+            const difficultyText = document.getElementById('leaderboard-difficulty-text');
+            
+            leaderboardList.innerHTML = '';
+            difficultyText.textContent = { 'easy': '簡易', 'medium': '中等', 'hard': '困難' }[currentDifficulty] || '中等';
+            
+            if (scores.length === 0) {
+                leaderboardList.innerHTML = '<p class="text-center text-gray-500 p-2">此難度暫無紀錄。</p>';
+                return;
+            }
+
+            scores.forEach((score, index) => {
+                const rank = index + 1;
+                const time = formatTime(score.timeInSeconds);
+                const isCurrentUser = score.userId === userId;
+                
+                const item = document.createElement('div');
+                item.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'rounded-lg', isCurrentUser ? 'bg-indigo-100' : 'bg-gray-100', isCurrentUser ? 'font-bold' : 'font-medium');
+                
+                item.innerHTML = `
+                    <span class="w-1/4 text-left text-gray-600">${rank}.</span>
+                    <span class="w-1/2 text-center truncate" title="${score.userId}">玩家 ID: ${score.userId}</span>
+                    <span class="w-1/4 text-right text-indigo-700">${time}</span>
+                `;
+                leaderboardList.appendChild(item);
+            });
+        };
+
+        /**
+         * 從 Firestore 載入排行榜數據
+         */
+        const loadLeaderboard = async (difficulty) => {
+            if (!isAuthReady || !db) {
+                console.warn("Firestore 尚未初始化或身份驗證未完成，無法載入排行榜。");
+                document.getElementById('leaderboard-list').innerHTML = '<p class="text-center text-red-500 p-2">載入失敗 (未登入或初始化)。</p>';
+                return;
+            }
+
+            document.getElementById('leaderboard-list').innerHTML = '<p id="leaderboard-loading" class="text-center text-gray-500">載入中...</p>';
+            
+            try {
+                // 公開數據路徑: /artifacts/{appId}/public/data/leaderboard
+                const collectionPath = `artifacts/${appId}/public/data/leaderboard`;
+                const leaderboardRef = collection(db, collectionPath);
+                
+                // 查詢特定難度的分數 (不能使用 orderBy，所以需要獲取所有相關數據後在客戶端排序)
+                const q = query(leaderboardRef, where("difficulty", "==", difficulty));
+                const querySnapshot = await getDocs(q);
+
+                let scores = [];
+                querySnapshot.forEach((doc) => {
+                    const data = doc.data();
+                    // 確保數據完整性
+                    if (data.timeInSeconds && data.userId && data.difficulty) {
+                        scores.push({ id: doc.id, ...data });
+                    }
+                });
+
+                // 在記憶體中按時間排序 (升序)
+                scores.sort((a, b) => a.timeInSeconds - b.timeInSeconds);
+                
+                // 只保留前 10 名
+                const topScores = scores.slice(0, 10);
+                
+                renderLeaderboard(topScores);
+
+            } catch (error) {
+                console.error("載入排行榜失敗:", error);
+                document.getElementById('leaderboard-list').innerHTML = '<p class="text-center text-red-500 p-2">載入排行榜時發生錯誤。</p>';
+            }
+        };
+
+        /**
+         * 將分數儲存到 Firestore
+         */
+        const saveScore = async (timeInSeconds, difficulty) => {
+            if (!isAuthReady || !db || userId === 'loading') {
+                console.warn("Firestore 尚未初始化或身份驗證未完成，無法儲存分數。");
+                return;
+            }
+            
+            try {
+                const collectionPath = `artifacts/${appId}/public/data/leaderboard`;
+                await addDoc(collection(db, collectionPath), {
+                    userId: userId,
+                    timeInSeconds: timeInSeconds,
+                    difficulty: difficulty,
+                    timestamp: Date.now()
+                });
+                console.log("分數已成功儲存。");
+                // 儲存後立即重新載入排行榜
+                await loadLeaderboard(difficulty);
+            } catch (error) {
+                console.error("儲存分數失敗:", error);
+            }
+        };
+
+        /**
+         * 初始化 Firebase 和身份驗證
+         */
+        const setupFirebase = async () => {
+            if (!firebaseConfig) {
+                console.error("Firebase 配置缺失，無法使用 Firestore。");
+                return;
+            }
+            
+            // 1. 初始化應用程式
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+            setLogLevel('Debug'); // 啟用 Firebase 偵錯日誌
+
+            // 2. 處理身份驗證
+            try {
+                await setPersistence(auth, browserSessionPersistence);
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        console.log("Firebase 身份驗證成功，UID:", userId);
+                        // 身份驗證完成後，立即載入排行榜並初始化遊戲
+                        initGame();
+                    } else {
+                        userId = crypto.randomUUID(); // 未登入時使用隨機 ID
+                        isAuthReady = true;
+                        console.log("Firebase 身份驗證匿名成功，使用臨時 ID:", userId);
+                        initGame();
+                    }
+                });
+            } catch (error) {
+                console.error("Firebase 身份驗證失敗:", error);
+                isAuthReady = true; // 即使失敗也標記為完成，防止阻塞應用程式
+                initGame();
+            }
+        };
+        
+        // ===================================================================================
+        // 數獨遊戲核心邏輯 (僅保留與排行榜相關的修改)
+        // ===================================================================================
+        
+        const GRID_SIZE = 9;
+        const BOX_SIZE = 3;
+        const GRID_CONTAINER = document.getElementById('sudoku-grid');
+        const NUMBER_PAD = document.getElementById('number-pad');
+        const MESSAGE_TEXT = document.getElementById('message-text');
+        const TIMER_DISPLAY = document.getElementById('timer-display'); 
+        
+        // 按鈕元素
+        const START_BTN = document.getElementById('start-game-btn');
+        const CHECK_BTN = document.getElementById('check-btn');
+        const CLEAR_BTN = document.getElementById('clear-btn');
+        const HINT_BTN = document.getElementById('hint-btn');
+        const RESET_BTN = document.getElementById('reset-game-btn');
+
+        // 遊戲狀態
+        const MAX_HINTS = 5; 
+        const difficultyHoles = { 'easy': 35, 'medium': 45, 'hard': 55 };
+        
+        let currentDifficulty = 'medium'; 
+        let solvedBoard = [];
+        let initialBoard = [];
+        let currentBoard = [];
+        let selectedCell = null;
+        let hintsUsed = 0;
+        let gameStarted = false; 
+        
+        let startTime;
+        let timerInterval;
+        let totalTimeInSeconds = 0; // 新增：儲存最終時間
+
+        // ... (其他數獨函數：updateGameUIState, startGameHandler, startTimer, stopTimer, isValidPlacement, solveBoard, generateSudoku, drawBoard, selectCell, setCellValue, checkCell, clearInputs, handleDifficultyChange, showMessage, clearMessage) - 這些函數與之前版本保持一致或只進行微調。
+        
+        // ----------------------------------------------------
+        // 數獨核心函數 (為簡潔，省略未修改的內部實現)
+        // ----------------------------------------------------
+
+        const updateGameUIState = () => {
+            // ... (與前一版本相同)
+            // 顯示/隱藏開始按鈕
+            START_BTN.style.display = gameStarted ? 'none' : 'block';
+            
+            // 啟用/禁用控制按鈕
+            [CHECK_BTN, CLEAR_BTN, HINT_BTN].forEach(btn => {
+                btn.disabled = !gameStarted;
+            });
+
+            // 啟用/禁用數獨格子的點擊事件
+            GRID_CONTAINER.querySelectorAll('.cell').forEach(cell => {
+                if (!cell.classList.contains('fixed-cell')) {
+                    if (!gameStarted) {
+                        cell.classList.remove('selected');
+                        cell.classList.remove('clickable');
+                        cell.style.pointerEvents = 'none';
+                    } else {
+                        cell.classList.add('clickable');
+                        cell.style.pointerEvents = 'auto';
+                    }
+                }
+            });
+
+            selectedCell = null;
+        };
+
+        const startGameHandler = () => {
+            if (gameStarted) return;
+            gameStarted = true;
+            startTimer();
+            updateGameUIState();
+            showMessage("遊戲開始！您有 5 次提示機會。", 'text-green-600');
+        };
+
+        const updateTimerDisplay = () => {
+            totalTimeInSeconds = Math.floor((Date.now() - startTime) / 1000);
+            TIMER_DISPLAY.textContent = formatTime(totalTimeInSeconds);
+        };
+
+        const startTimer = () => {
+            stopTimer(); 
+            startTime = Date.now();
+            updateTimerDisplay();
+            timerInterval = setInterval(updateTimerDisplay, 1000);
+        };
+
+        const stopTimer = () => {
+            clearInterval(timerInterval);
+        };
+        
+        const isValidPlacement = (board, row, col, num) => {
+            // 檢查行
+            for (let c = 0; c < GRID_SIZE; c++) {
+                if (board[row][c] === num && c !== col) return false;
+            }
+            // 檢查列
+            for (let r = 0; r < GRID_SIZE; r++) {
+                if (board[r][col] === num && r !== row) return false;
+            }
+            // 檢查 3x3 區塊
+            const boxRowStart = Math.floor(row / BOX_SIZE) * BOX_SIZE;
+            const boxColStart = Math.floor(col / BOX_SIZE) * BOX_SIZE;
+            for (let r = 0; r < BOX_SIZE; r++) {
+                for (let c = 0; c < BOX_SIZE; c++) {
+                    const currentRow = boxRowStart + r;
+                    const currentCol = boxColStart + c;
+                    if (board[currentRow][currentCol] === num && (currentRow !== row || currentCol !== col)) return false;
+                }
+            }
+            return true;
+        };
+
+        const solveBoard = (board) => {
+            for (let row = 0; row < GRID_SIZE; row++) {
+                for (let col = 0; col < GRID_SIZE; col++) {
+                    if (board[row][col] === 0) {
+                        const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9].sort(() => Math.random() - 0.5); 
+                        for (const num of numbers) {
+                            if (isValidPlacement(board, row, col, num)) {
+                                board[row][col] = num;
+                                if (solveBoard(board)) {
+                                    return true;
+                                }
+                                board[row][col] = 0; // 回溯
+                            }
+                        }
+                        return false; 
+                    }
+                }
+            }
+            return true;
+        };
+
+        const generateSudoku = (holes) => {
+            let tempBoard = Array(GRID_SIZE).fill(0).map(() => Array(GRID_SIZE).fill(0));
+            
+            if (!solveBoard(tempBoard)) {
+                console.error("生成完整數獨解失敗");
+                return { solved: [], puzzle: [] };
+            }
+            
+            const solved = tempBoard.map(row => [...row]);
+            let puzzle = solved.map(row => [...row]);
+            let cellsToClear = Array.from({ length: GRID_SIZE * GRID_SIZE }, (_, i) => i).sort(() => Math.random() - 0.5);
+            
+            let removedCount = 0;
+            for (let i = 0; i < cellsToClear.length && removedCount < holes; i++) {
+                const cellIndex = cellsToClear[i];
+                const row = Math.floor(cellIndex / GRID_SIZE);
+                const col = cellIndex % GRID_SIZE;
+                
+                puzzle[row][col] = 0; 
+                removedCount++;
+            }
+
+            return { solved, puzzle };
+        };
+
+        const drawBoard = (board) => {
+            GRID_CONTAINER.innerHTML = '';
+            initialBoard = board.map(row => [...row]);
+            currentBoard = board.map(row => [...row]);
+
+            for (let r = 0; r < GRID_SIZE; r++) {
+                const rowDiv = document.createElement('div');
+                rowDiv.classList.add('row', 'contents');
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.classList.add('cell', 'aspect-square');
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    
+                    const value = board[r][c];
+                    if (value !== 0) {
+                        cell.textContent = value;
+                        cell.classList.add('fixed-cell');
+                    } else {
+                        cell.textContent = '';
+                        cell.addEventListener('click', () => selectCell(r, c));
+                    }
+                    
+                    GRID_CONTAINER.appendChild(cell);
+                }
+            }
+        };
+
+        const selectCell = (row, col) => {
+            if (!gameStarted) return;
+
+            document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('selected'));
+            
+            const cellElement = GRID_CONTAINER.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            if (cellElement && !cellElement.classList.contains('fixed-cell')) {
+                cellElement.classList.add('selected');
+                selectedCell = { row, col };
+            } else {
+                selectedCell = null;
+            }
+        };
+
+        const setCellValue = (number) => {
+            if (!gameStarted) {
+                showMessage("請先點擊「開始遊戲」按鈕。", 'text-red-500');
+                return;
+            }
+            if (!selectedCell) {
+                showMessage("請先選擇一個空白單元格。", 'text-red-500');
+                return;
+            }
+
+            const { row, col } = selectedCell;
+            const cellElement = GRID_CONTAINER.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            
+            if (initialBoard[row][col] !== 0) return;
+
+            currentBoard[row][col] = number;
+            cellElement.textContent = number === 0 ? '' : number;
+            
+            cellElement.classList.remove('user-input', 'error');
+            if (number !== 0) {
+                cellElement.classList.add('user-input');
+                checkCell(row, col);
+            }
+            clearMessage();
+        };
+
+        const checkCell = () => {
+            document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
+
+            let hasError = false;
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    const val = currentBoard[r][c];
+                    if (val !== 0 && !isValidPlacement(currentBoard, r, c, val)) {
+                        GRID_CONTAINER.querySelector(`[data-row="${r}"][data-col="${c}"]`).classList.add('error');
+                        hasError = true;
+                    }
+                }
+            }
+            return !hasError;
+        };
+        
+        // **修改 checkAnswer 函數以儲存分數**
+        const checkAnswer = () => {
+            if (!gameStarted) {
+                showMessage("請先點擊「開始遊戲」按鈕。", 'text-red-500');
+                return;
+            }
+            
+            const isFull = currentBoard.every(row => row.every(val => val !== 0));
+            if (!isFull) {
+                showMessage("還有空白單元格未填寫！", 'text-yellow-600');
+                return;
+            }
+
+            if (!checkCell()) {
+                showMessage("您的答案有錯誤！請檢查紅色高亮單元格。", 'text-red-600');
+                return;
+            }
+
+            let isCorrect = true;
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (currentBoard[r][c] !== solvedBoard[r][c]) {
+                        isCorrect = false;
+                        break;
+                    }
+                }
+                if (!isCorrect) break;
+            }
+
+            if (isCorrect) {
+                stopTimer();
+                gameStarted = false; 
+                updateGameUIState();
+                
+                // 成功時儲存分數
+                saveScore(totalTimeInSeconds, currentDifficulty);
+
+                showMessage(`恭喜您！數獨已成功解決！用時 ${TIMER_DISPLAY.textContent}`, 'text-green-600');
+            } else {
+                showMessage("您的答案不完全正確，但沒有明顯衝突。", 'text-red-600');
+            }
+        };
+
+        const showHint = () => {
+            if (!gameStarted) {
+                showMessage("請先點擊「開始遊戲」按鈕。", 'text-red-500');
+                return;
+            }
+            if (hintsUsed >= MAX_HINTS) {
+                showMessage(`提示次數已達上限 (${MAX_HINTS} 次)。請自行完成遊戲！`, 'text-red-600');
+                return;
+            }
+
+            const emptyCells = [];
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (currentBoard[r][c] === 0 && initialBoard[r][c] === 0) {
+                        emptyCells.push({ row: r, col: c });
+                    }
+                }
+            }
+
+            if (emptyCells.length === 0) {
+                showMessage("數獨已經填滿了！", 'text-green-600');
+                return;
+            }
+
+            const randomIndex = Math.floor(Math.random() * emptyCells.length);
+            const { row, col } = emptyCells[randomIndex];
+            const correctValue = solvedBoard[row][col];
+            
+            selectCell(row, col);
+            currentBoard[row][col] = correctValue;
+            const cellElement = GRID_CONTAINER.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            cellElement.textContent = correctValue;
+            
+            cellElement.classList.remove('error'); 
+            cellElement.classList.add('user-input');
+
+            hintsUsed++;
+            const remaining = MAX_HINTS - hintsUsed;
+            showMessage(`提示：在 [${row + 1}, ${col + 1}] 填入 ${correctValue}。剩餘提示次數: ${remaining} 次`, 'text-purple-600');
+            
+            checkCell();
+        };
+
+        const clearInputs = () => {
+            if (!gameStarted) {
+                showMessage("請先點擊「開始遊戲」按鈕。", 'text-red-500');
+                return;
+            }
+            
+            for (let r = 0; r < GRID_SIZE; r++) {
+                for (let c = 0; c < GRID_SIZE; c++) {
+                    if (initialBoard[r][c] === 0) {
+                        currentBoard[r][c] = 0;
+                        const cellElement = GRID_CONTAINER.querySelector(`[data-row="${r}"][data-col="${c}"]`);
+                        cellElement.textContent = '';
+                        cellElement.classList.remove('user-input', 'error', 'selected');
+                    }
+                }
+            }
+            document.querySelectorAll('.cell').forEach(cell => cell.classList.remove('error'));
+            selectedCell = null;
+            clearMessage();
+            showMessage("所有輸入的數字都已清除。", 'text-indigo-600');
+        };
+
+        // **修改 handleDifficultyChange 函數以重新載入排行榜**
+        const handleDifficultyChange = (difficulty) => {
+            currentDifficulty = difficulty;
+            
+            document.querySelectorAll('.difficulty-btn').forEach(btn => {
+                if (btn.dataset.difficulty === difficulty) {
+                    btn.classList.remove('difficulty-btn-inactive');
+                    btn.classList.add('difficulty-btn-active');
+                } else {
+                    btn.classList.add('difficulty-btn-inactive');
+                    btn.classList.remove('difficulty-btn-active');
+                }
+            });
+            
+            initGame();
+        };
+
+
+        // **修改 initGame 函數以在遊戲初始化時載入排行榜**
+        const initGame = () => {
+            // 重置狀態
+            gameStarted = false; 
+            hintsUsed = 0; 
+            stopTimer();
+            TIMER_DISPLAY.textContent = "00:00"; 
+            totalTimeInSeconds = 0; 
+            
+            // 產生新謎題
+            const difficulty = difficultyHoles[currentDifficulty] || difficultyHoles['medium']; 
+            const { solved, puzzle } = generateSudoku(difficulty);
+            solvedBoard = solved;
+            drawBoard(puzzle);
+            
+            // 更新 UI 狀態 (禁用互動，顯示開始按鈕)
+            updateGameUIState();
+            
+            // 載入當前難度的排行榜
+            if (isAuthReady) {
+                loadLeaderboard(currentDifficulty);
+            } else {
+                 document.getElementById('leaderboard-list').innerHTML = '<p class="text-center text-gray-500 p-2">等待身份驗證完成...</p>';
+            }
+
+
+            showMessage(`已生成 ${currentDifficulty === 'easy' ? '簡易' : currentDifficulty === 'medium' ? '中等' : '困難'} 難度的數獨。請點擊「開始遊戲」按鈕開始計時。`, 'text-gray-700');
+        };
+
+        const showMessage = (text, colorClass) => {
+            MESSAGE_TEXT.textContent = text;
+            MESSAGE_TEXT.className = `text-lg font-medium ${colorClass}`;
+        };
+
+        const clearMessage = () => {
+            MESSAGE_TEXT.textContent = '';
+            MESSAGE_TEXT.className = 'text-lg font-medium text-gray-700';
+        };
+
+
+        // ===================================
+        // 監聽器設置
+        // ===================================
+
+        // 頁面載入後，先設定 Firebase，再初始化遊戲
+        document.addEventListener('DOMContentLoaded', () => {
+            // 1. 難度選擇按鈕
+            document.getElementById('easy-btn').addEventListener('click', () => handleDifficultyChange('easy'));
+            document.getElementById('medium-btn').addEventListener('click', () => handleDifficultyChange('medium'));
+            document.getElementById('hard-btn').addEventListener('click', () => handleDifficultyChange('hard'));
+
+
+            // 2. 數字輸入按鈕
+            for (let i = 1; i <= 9; i++) {
+                const btn = document.createElement('button');
+                btn.textContent = i;
+                btn.classList.add('p-3', 'w-10', 'h-10', 'bg-blue-500', 'text-white', 'font-bold', 'rounded-full', 'shadow-md', 'hover:bg-blue-600', 'transition', 'duration-150');
+                btn.addEventListener('click', () => setCellValue(i));
+                NUMBER_PAD.appendChild(btn);
+            }
+            
+            // 清除按鈕 (0)
+            const clearBtnPad = document.createElement('button');
+            clearBtnPad.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>`;
+            clearBtnPad.classList.add('p-2', 'w-10', 'h-10', 'bg-gray-300', 'text-gray-700', 'rounded-full', 'shadow-md', 'hover:bg-gray-400', 'transition', 'duration-150');
+            clearBtnPad.title = "清除數字";
+            clearBtnPad.addEventListener('click', () => setCellValue(0));
+            NUMBER_PAD.appendChild(clearBtnPad);
+
+
+            // 3. 主控制按鈕
+            START_BTN.addEventListener('click', startGameHandler); // 開始遊戲
+            CHECK_BTN.addEventListener('click', checkAnswer);
+            CLEAR_BTN.addEventListener('click', clearInputs);
+            HINT_BTN.addEventListener('click', showHint); 
+            RESET_BTN.addEventListener('click', initGame); // 重置遊戲
+
+
+            // 4. 鍵盤輸入處理
+            document.addEventListener('keydown', (e) => {
+                if (!gameStarted) return; // 遊戲未開始，不處理鍵盤輸入
+                
+                const key = e.key;
+                if (selectedCell) {
+                    if (key >= '1' && key <= '9') {
+                        setCellValue(parseInt(key, 10));
+                    } else if (key === 'Delete' || key === 'Backspace' || key === '0') {
+                        setCellValue(0);
+                    }
+                }
+                
+                // 處理方向鍵移動選擇
+                if (selectedCell) {
+                    let { row, col } = selectedCell;
+                    let newRow = row;
+                    let newCol = col;
+                    
+                    if (key === 'ArrowUp') newRow = Math.max(0, row - 1);
+                    else if (key === 'ArrowDown') newRow = Math.min(GRID_SIZE - 1, row + 1);
+                    else if (key === 'ArrowLeft') newCol = Math.max(0, col - 1);
+                    else if (key === 'ArrowRight') newCol = Math.min(GRID_SIZE - 1, col + 1);
+
+                    if (newRow !== row || newCol !== col) {
+                        e.preventDefault();
+                        selectCell(newRow, newCol);
+                    }
+                }
+            });
+
+            // 初始化 Firebase 和遊戲
+            setupFirebase();
+        });
+    </script>
+</body>
+</html>
